@@ -1,5 +1,5 @@
 # Opcional: OWNER/REPO. Vacío u omitido, gh resuelve el repositorio.
-repo: ""
+repo: "bcerron/desarrollo-agentico-todo-04"
 label: adw
 interval_seconds: 20
 
