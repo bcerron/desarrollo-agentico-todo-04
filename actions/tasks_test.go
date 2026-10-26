@@ -237,3 +237,108 @@ func (as *ActionSuite) Test_TasksUpdate_InvalidID() {
 	res := as.HTML("/tasks/no-es-un-uuid").Put(url.Values{"title": {"Título nuevo"}})
 	as.Equal(404, res.Code)
 }
+
+func (as *ActionSuite) createTasks(titles ...string) []*models.Task {
+	tasks := []*models.Task{}
+	for _, title := range titles {
+		task := &models.Task{Title: title}
+		verrs, err := as.DB.ValidateAndCreate(task)
+		as.NoError(err)
+		as.False(verrs.HasAny())
+		tasks = append(tasks, task)
+	}
+	return tasks
+}
+
+// assertOrder comprueba que los títulos aparecen en el HTML de la lista en ese orden.
+func (as *ActionSuite) assertOrder(titles ...string) {
+	body := as.HTML("/").Get().Body.String()
+	last := -1
+	for _, title := range titles {
+		idx := strings.Index(body, `class="task-title">`+title+"<")
+		as.NotEqual(-1, idx, "no aparece %q", title)
+		as.Greater(idx, last, "%q fuera de orden", title)
+		last = idx
+	}
+}
+
+func (as *ActionSuite) Test_TasksIndex_OrdersByPosition() {
+	as.LoadFixture("tres tareas")
+	as.assertOrder("Comprar material de oficina", "Llamar al gestor", "Publicar la oferta de empleo")
+
+	as.NoError(as.DB.RawQuery("UPDATE tasks SET position = 4 - position").Exec())
+	as.assertOrder("Publicar la oferta de empleo", "Llamar al gestor", "Comprar material de oficina")
+}
+
+func (as *ActionSuite) Test_TasksMove_PersistsNewOrder() {
+	tasks := as.createTasks("A1", "B1", "C1")
+	res := as.HTML("/tasks/%s/move", tasks[2].ID).Put(url.Values{"position": {"1"}})
+	as.Equal(303, res.Code)
+	as.Equal("/", res.Header().Get("Location"))
+	as.assertOrder("C1", "A1", "B1")
+}
+
+func (as *ActionSuite) Test_TasksMove_NotFound() {
+	res := as.HTML("/tasks/%s/move", uuid.Must(uuid.NewV4())).Put(url.Values{"position": {"1"}})
+	as.Equal(404, res.Code)
+}
+
+func (as *ActionSuite) Test_TasksMove_InvalidID() {
+	res := as.HTML("/tasks/no-es-un-uuid/move").Put(url.Values{"position": {"1"}})
+	as.Equal(404, res.Code)
+}
+
+func (as *ActionSuite) Test_TasksMove_InvalidPosition() {
+	tasks := as.createTasks("A1", "B1", "C1")
+	for _, value := range []string{"abc", "0", ""} {
+		res := as.HTML("/tasks/%s/move", tasks[2].ID).Put(url.Values{"position": {value}})
+		as.Equal(422, res.Code, "position=%q", value)
+	}
+	as.assertOrder("A1", "B1", "C1")
+}
+
+func (as *ActionSuite) Test_TasksCreate_AppendsAtEnd() {
+	tasks := as.createTasks("A1", "B1")
+	as.HTML("/tasks/%s/move", tasks[1].ID).Put(url.Values{"position": {"1"}})
+
+	res := as.HTML("/tasks").Post(&models.Task{Title: "Nueva"})
+	as.Equal(303, res.Code)
+	as.assertOrder("B1", "A1", "Nueva")
+}
+
+func (as *ActionSuite) Test_TasksToggle_KeepsPosition() {
+	tasks := as.createTasks("A1", "B1", "C1")
+	as.HTML("/tasks/%s/move", tasks[2].ID).Put(url.Values{"position": {"1"}})
+
+	res := as.HTML("/tasks/%s/toggle", tasks[2].ID).Put(url.Values{})
+	as.Equal(303, res.Code)
+
+	as.NoError(as.DB.Reload(tasks[2]))
+	as.True(tasks[2].Completed)
+	as.Equal(1, tasks[2].Position)
+	as.assertOrder("C1", "A1", "B1")
+}
+
+func (as *ActionSuite) Test_TasksUpdate_KeepsPosition() {
+	tasks := as.createTasks("A1", "B1", "C1")
+	as.HTML("/tasks/%s/move", tasks[2].ID).Put(url.Values{"position": {"1"}})
+
+	res := as.HTML("/tasks/%s", tasks[2].ID).Put(url.Values{"title": {"C editada"}})
+	as.Equal(303, res.Code)
+
+	as.NoError(as.DB.Reload(tasks[2]))
+	as.Equal("C editada", tasks[2].Title)
+	as.Equal(1, tasks[2].Position)
+	as.assertOrder("C editada", "A1", "B1")
+}
+
+func (as *ActionSuite) Test_TasksIndex_MoveControls() {
+	tasks := as.createTasks("Solo una")
+	body := as.HTML("/").Get().Body.String()
+	as.Contains(body, "Subir tarea: Solo una")
+	as.Contains(body, "Bajar tarea: Solo una")
+	as.Contains(body, "/tasks/"+tasks[0].ID.String()+"/move")
+	as.Contains(body, "data-drag-handle")
+	as.Contains(body, `aria-live="polite"`)
+	as.Equal(2, strings.Count(body, "disabled"))
+}

@@ -121,7 +121,7 @@ h1 {
 
 .task {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-columns: 24px 44px minmax(0, 1fr) auto;
   align-items: start;
   column-gap: 0.3rem;
   min-height: 61px;
@@ -216,6 +216,38 @@ h1 {
 .icon-action:hover {
   color: var(--color-text);
   background: #f2f2ee;
+}
+
+.drag-handle {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  color: var(--color-muted);
+  cursor: grab;
+}
+
+.drag-handle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.task-dragging {
+  opacity: 0.5;
+}
+
+.task-dragging .drag-handle {
+  cursor: grabbing;
+}
+
+.icon-action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.icon-action:disabled:hover {
+  color: var(--color-muted);
+  background: transparent;
 }
 
 .icon-danger:hover {
@@ -434,7 +466,7 @@ input:focus-visible {
   }
 
   .task {
-    grid-template-columns: 36px minmax(0, 1fr) auto;
+    grid-template-columns: 20px 36px minmax(0, 1fr) auto;
   }
 
   .task-toggle-button,

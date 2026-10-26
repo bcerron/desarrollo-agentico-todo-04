@@ -1,7 +1,9 @@
 package actions
 
 import (
+	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"todo/models"
@@ -16,7 +18,7 @@ func TasksIndex(c buffalo.Context) error {
 	tx := c.Value("tx").(*pop.Connection)
 
 	tasks := models.Tasks{}
-	if err := tx.Order("created_at asc, id asc").All(&tasks); err != nil {
+	if err := tx.Order(models.TaskOrder).All(&tasks); err != nil {
 		return err
 	}
 
@@ -43,7 +45,7 @@ func TasksCreate(c buffalo.Context) error {
 
 	if verrs.HasAny() {
 		tasks := models.Tasks{}
-		if err := tx.Order("created_at asc, id asc").All(&tasks); err != nil {
+		if err := tx.Order(models.TaskOrder).All(&tasks); err != nil {
 			return err
 		}
 
@@ -88,7 +90,7 @@ func TasksUpdate(c buffalo.Context) error {
 	}
 	task.Title = strings.TrimSpace(input.Title)
 
-	verrs, err := tx.ValidateAndUpdate(task)
+	verrs, err := tx.ValidateAndUpdate(task, "position")
 	if err != nil {
 		return err
 	}
@@ -112,7 +114,37 @@ func TasksToggle(c buffalo.Context) error {
 	}
 
 	task.Completed = !task.Completed
-	if err := tx.Update(task); err != nil {
+	if err := tx.Update(task, "position"); err != nil {
+		return err
+	}
+
+	return c.Redirect(http.StatusSeeOther, "/")
+}
+
+// TasksMove coloca una tarea en la posición indicada (1-based) de la lista.
+func TasksMove(c buffalo.Context) error {
+	tx := c.Value("tx").(*pop.Connection)
+
+	task := &models.Task{}
+	if err := tx.Find(task, c.Param("task_id")); err != nil {
+		return c.Error(http.StatusNotFound, err)
+	}
+
+	input := struct {
+		Position string `form:"position"`
+	}{}
+	if err := c.Bind(&input); err != nil {
+		return err
+	}
+	pos, err := strconv.Atoi(strings.TrimSpace(input.Position))
+	if err != nil || pos < 1 {
+		return c.Error(http.StatusUnprocessableEntity, errors.New("posición no válida"))
+	}
+
+	if err := models.MoveTask(tx, task.ID, pos); err != nil {
+		if errors.Is(err, models.ErrTaskNotFound) {
+			return c.Error(http.StatusNotFound, err)
+		}
 		return err
 	}
 
